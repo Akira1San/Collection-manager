@@ -206,6 +206,7 @@ class MainWindow(QMainWindow):
 
         self.tags_panel.tags_changed.connect(self._on_tags_changed)
         self.info_panel.info_changed.connect(self._on_info_changed)
+        self.info_panel.save_info_requested.connect(self._save_info)
         self.info_panel.resolve_cover_requested.connect(self._resolve_current_cover)
         self.info_panel.resolve_all_covers_requested.connect(self._resolve_all_covers)
 
@@ -829,6 +830,25 @@ class MainWindow(QMainWindow):
             if cover_path.startswith(base.rstrip("/") + "/"):
                 return os.path.relpath(cover_path, base)
         return os.path.relpath(cover_path, os.path.dirname(os.path.abspath(self._current_file))) if self._current_file else cover_path
+
+    def _save_info(self):
+        if not self._current_file:
+            QMessageBox.warning(self, "Save Info", "Load a collection file first.")
+            return
+        data = self.info_panel.get_data()
+        col_id = data.get("id", "")
+        for col in self._loaded_collections:
+            if col.get("id") == col_id:
+                col["name"] = data.get("name", "")
+                col["name_bg"] = data.get("name_bg", "")
+                col["cover"] = data.get("cover", "")
+                col["description"] = data.get("description", "")
+                col["genre"] = data.get("genre", [])
+                col["year"] = data.get("year", 0)
+                break
+        self._on_info_changed()
+        self._write_json(self._current_file)
+        self._status("Info saved")
 
     def _save(self):
         if not self.add_panel.get_video_paths():

@@ -8,6 +8,7 @@ from src.cover_widget import CoverWidget
 
 class InfoPanel(QWidget):
     info_changed = Signal()
+    save_info_requested = Signal()
     resolve_cover_requested = Signal()
     resolve_all_covers_requested = Signal()
 
@@ -78,6 +79,12 @@ class InfoPanel(QWidget):
         form.addRow("Tags:", self.tags_label)
 
         layout.addLayout(form)
+
+        self.save_info_btn = QPushButton("Save Info")
+        self.save_info_btn.setToolTip("Save current info changes to the loaded file")
+        self.save_info_btn.clicked.connect(self.save_info_requested.emit)
+        layout.addWidget(self.save_info_btn)
+
         layout.addStretch()
 
     def _on_change(self):
