@@ -835,6 +835,13 @@ class MainWindow(QMainWindow):
         if not self._current_file:
             QMessageBox.warning(self, "Save Info", "Load a collection file first.")
             return
+        if not self._loaded_collections:
+            data = json_handler.load_collection(self._current_file)
+            if data and data.get("collections"):
+                self._loaded_collections = data["collections"]
+            else:
+                QMessageBox.warning(self, "Save Info", "No collections in loaded file.")
+                return
         data = self.info_panel.get_data()
         col_id = data.get("id", "")
         for col in self._loaded_collections:
