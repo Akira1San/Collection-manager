@@ -1016,9 +1016,18 @@ class MainWindow(QMainWindow):
         dest_dir = self._get_channel_covers_dir(channel)
         os.makedirs(dest_dir, exist_ok=True)
 
+        json_dir = os.path.dirname(os.path.abspath(json_path))
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         local_covers = os.path.join(project_root, "covers")
-        flat_dirs = [d for d in [local_covers, covers_dir] if d and os.path.isdir(d)]
+        covers_base = os.path.dirname(os.path.dirname(covers_dir))
+        json_covers = os.path.join(json_dir, "covers")
+
+        flat_dirs = []
+        for d in [local_covers, covers_dir, json_covers, os.path.join(covers_base, "covers")]:
+            if d and os.path.isdir(d):
+                flat_dirs.append(d)
+
+        base_path = os.path.dirname(os.path.dirname(config_handler.get_collections_dir().rstrip("/")))
 
         pending = []
         for entry in data["collections"]:
@@ -1029,8 +1038,17 @@ class MainWindow(QMainWindow):
             if cover_val and not cover_val.startswith("http"):
                 src_path = cover_val
                 if not os.path.isabs(src_path):
-                    src_path = os.path.normpath(os.path.join(os.path.dirname(json_path), src_path))
-                if not os.path.exists(src_path):
+                    candidates = [
+                        os.path.normpath(os.path.join(json_dir, src_path)),
+                        os.path.normpath(os.path.join(base_path, src_path)),
+                    ]
+                    for c in candidates:
+                        if os.path.exists(c):
+                            src_path = c
+                            break
+                    else:
+                        src_path = ""
+                elif not os.path.exists(src_path):
                     src_path = ""
 
             if not src_path and name:
