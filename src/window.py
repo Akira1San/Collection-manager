@@ -832,6 +832,8 @@ class MainWindow(QMainWindow):
         return os.path.relpath(cover_path, os.path.dirname(os.path.abspath(self._current_file))) if self._current_file else cover_path
 
     def _save_info(self):
+        # TODO: Refactor to separate the "sync to loaded_collections" step
+        # from the save step, so it can be reused by auto-save or batch save.
         if not self._current_file:
             QMessageBox.warning(self, "Save Info", "Load a collection file first.")
             return
@@ -857,7 +859,31 @@ class MainWindow(QMainWindow):
                 col["year"] = data.get("year", 0)
                 break
         self._on_info_changed()
-        json_handler.save_collection(self._current_file, {"collections": self._loaded_collections})
+
+        # If no videos are in the save list (add_panel), offer to populate it
+        # from the current entry so _write_json can work properly.
+        # TODO: In the future, add a proper "save changes to loaded file" path
+        # that doesn't depend on add_panel at all.
+        if not self.add_panel.get_video_paths():
+            reply = QMessageBox.question(
+                self, "Save Info",
+                "No videos in the save list.\n\n"
+                "Add the current entry's videos to the save list and save?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            for col in self._loaded_collections:
+                if col.get("id") == col_id:
+                    for v in col.get("videos", []):
+                        vp = v.get("path", "")
+                        if vp and vp not in self.add_panel.get_video_paths():
+                            self.add_panel.add_videos([vp])
+                    break
+            self._write_json(self._current_file)
+        else:
+            json_handler.save_collection(self._current_file, {"collections": self._loaded_collections})
         self._status("Info saved")
 
     def _save(self):
