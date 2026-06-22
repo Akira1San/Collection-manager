@@ -4,7 +4,8 @@ import shutil
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QComboBox, QLineEdit, QPushButton, QFileDialog, QLabel,
-    QMessageBox, QFrame, QDialog,
+    QMessageBox, QFrame, QDialog, QTableWidget, QTableWidgetItem,
+    QHeaderView,
 )
 from PySide6.QtCore import Qt
 
@@ -254,14 +255,18 @@ class MainWindow(QMainWindow):
         collections_btn.setToolTip("Set the collections directory")
         covers_btn = QPushButton("Config Cover Images")
         covers_btn.setToolTip("Set the cover images directory")
+        channels_btn = QPushButton("Config Channels")
+        channels_btn.setToolTip("Add or edit channel names for cover folders")
         cancel_btn = QPushButton("Cancel")
 
         layout.addWidget(collections_btn)
         layout.addWidget(covers_btn)
+        layout.addWidget(channels_btn)
         layout.addWidget(cancel_btn)
 
         collections_btn.clicked.connect(lambda: self._choose_collections_dir(dialog))
         covers_btn.clicked.connect(lambda: self._choose_covers_dir(dialog))
+        channels_btn.clicked.connect(lambda: self._config_channels(dialog))
         cancel_btn.clicked.connect(dialog.reject)
 
         dialog.exec()
@@ -280,6 +285,71 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Select Cover Images Directory", current or "")
         if path:
             config_handler.set_covers_dir(path)
+        dialog.accept()
+
+    def _config_channels(self, parent_dialog):
+        channels = config_handler.get_channel_names()
+        dialog = QDialog(parent_dialog)
+        dialog.setWindowTitle("Channel Names")
+        dialog.setMinimumWidth(400)
+        layout = QVBoxLayout(dialog)
+
+        table = QTableWidget(len(channels), 2)
+        table.setHorizontalHeaderLabels(["Key", "Channel Name"])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.verticalHeader().setVisible(False)
+        for i, (key, val) in enumerate(sorted(channels.items())):
+            table.setItem(i, 0, QTableWidgetItem(key))
+            table.setItem(i, 1, QTableWidgetItem(val))
+        layout.addWidget(table)
+
+        btn_layout = QHBoxLayout()
+        add_btn = QPushButton("Add Row")
+        add_btn.clicked.connect(lambda: self._add_channel_row(table))
+        remove_btn = QPushButton("Remove Row")
+        remove_btn.clicked.connect(lambda: self._remove_channel_row(table))
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(remove_btn)
+        layout.addLayout(btn_layout)
+
+        ok_cancel = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Cancel")
+        ok_cancel.addStretch()
+        ok_cancel.addWidget(ok_btn)
+        ok_cancel.addWidget(cancel_btn)
+        layout.addLayout(ok_cancel)
+
+        ok_btn.clicked.connect(lambda: self._save_channels(table, dialog))
+        cancel_btn.clicked.connect(dialog.reject)
+
+        dialog.exec()
+
+    @staticmethod
+    def _add_channel_row(table):
+        row = table.rowCount()
+        table.insertRow(row)
+        table.setItem(row, 0, QTableWidgetItem(""))
+        table.setItem(row, 1, QTableWidgetItem(""))
+
+    @staticmethod
+    def _remove_channel_row(table):
+        rows = set()
+        for item in table.selectedItems():
+            rows.add(item.row())
+        for r in sorted(rows, reverse=True):
+            table.removeRow(r)
+
+    @staticmethod
+    def _save_channels(table, dialog):
+        channels = {}
+        for r in range(table.rowCount()):
+            key = table.item(r, 0)
+            val = table.item(r, 1)
+            if key and val and key.text().strip():
+                channels[key.text().strip()] = val.text().strip() if val.text().strip() else key.text().strip()
+        if channels:
+            config_handler.set_channel_names(channels)
         dialog.accept()
 
     def _browse_video_folder(self):

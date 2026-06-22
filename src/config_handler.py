@@ -107,8 +107,9 @@ def set_channel_names(channels):
     ensure_config()
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
-    if not config.has_section("Channels"):
-        config.add_section("Channels")
+    if config.has_section("Channels"):
+        config.remove_section("Channels")
+    config.add_section("Channels")
     for key, val in channels.items():
         config.set("Channels", key, val)
     with open(CONFIG_PATH, "w") as f:
