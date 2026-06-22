@@ -396,23 +396,37 @@ class MainWindow(QMainWindow):
 
     def _fetch_metadata(self):
         selected = self.collection_panel.get_selected_paths()
+
+        def _extract_year(stem):
+            m = re.search(r'[\(\[\{](19\d{2}|20\d{2})[\)\]\}]', stem)
+            if m:
+                return m.group(1)
+            m = re.search(r'(?<!\d)(19\d{2}|20\d{2})(?!\d)', stem)
+            return m.group(1) if m else ""
+
+        def _clean_title(stem, year):
+            if not year:
+                return stem.strip()
+            title = re.sub(r'[\(\[\{](?:19\d{2}|20\d{2})[\)\]\}]', '', stem)
+            title = re.sub(r'(?<!\d)' + year + r'(?!\d)', '', title)
+            return re.sub(r'[\s.\-_]+', ' ', title).strip()
+
         if not selected:
             name = self.info_panel.name_edit.text()
-            dialog = FetchDialog(self, collection_name=name)
+            year = _extract_year(name)
+            title = _clean_title(name, year)
+            dialog = FetchDialog(self, items=[(None, title, year)])
             if dialog.exec() == FetchDialog.Accepted:
                 result = dialog.get_result()
                 if result:
                     self._apply_fetched_metadata(result, "")
                     self._status("Metadata applied")
             return
-        def _extract_year(stem):
-            m = re.search(r'[\(\[\{](19\d{2}|20\d{2})[\)\]\}]', stem)
-            return m.group(1) if m else ""
         items = []
         for vpath in selected:
             stem = os.path.splitext(os.path.basename(vpath))[0]
             year = _extract_year(stem)
-            title = re.sub(r'\s*[\(\[\{](19\d{2}|20\d{2})[\)\]\}]', '', stem).strip()
+            title = _clean_title(stem, year)
             items.append((vpath, title, year))
         dialog = FetchDialog(self, items=items)
         if dialog.exec() == FetchDialog.Accepted:
