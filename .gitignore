@@ -1,0 +1,14 @@
+*.md
+*.json
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.bmp
+*.avi
+*.mp4
+*.mkv
+config.ini
+__pycache__/
+.opencode/
+covers/
