@@ -415,7 +415,7 @@ class MainWindow(QMainWindow):
             name = self.info_panel.name_edit.text()
             year = _extract_year(name)
             title = _clean_title(name, year)
-            dialog = FetchDialog(self, items=[(None, title, year)])
+            dialog = FetchDialog(self, "", [(None, title, year)])
             if dialog.exec() == FetchDialog.Accepted:
                 result = dialog.get_result()
                 if result:
