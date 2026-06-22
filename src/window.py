@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QComboBox, QLineEdit, QPushButton, QFileDialog, QLabel,
@@ -126,6 +127,12 @@ class MainWindow(QMainWindow):
         self.config_btn.clicked.connect(self._config_dir)
         tb_layout.addWidget(self.config_btn)
 
+        self.migrate_btn = QPushButton("Migrate")
+        self.migrate_btn.setToolTip("Move existing covers to channel-based folders")
+        self.migrate_btn.setMaximumHeight(24)
+        self.migrate_btn.clicked.connect(self._migrate_covers)
+        tb_layout.addWidget(self.migrate_btn)
+
         self.fetch_btn = QPushButton("Fetch")
         self.fetch_btn.setToolTip("Fetch metadata for the selected or current collection")
         self.fetch_btn.setMaximumHeight(24)
@@ -207,6 +214,13 @@ class MainWindow(QMainWindow):
         self._collections_dir = config_handler.get_collections_dir()
         self._refresh_collections_combo()
         self._update_status_file()
+
+    def _get_channel_name(self):
+        if not self._current_file:
+            return ""
+        stem = os.path.splitext(os.path.basename(self._current_file))[0]
+        channels = config_handler.get_channel_names()
+        return channels.get(stem, "")
 
     def _refresh_collections_combo(self):
         self.collections_combo.blockSignals(True)
@@ -447,6 +461,10 @@ class MainWindow(QMainWindow):
             if not save_dir:
                 base = os.path.dirname(os.path.abspath(self._current_file)) if self._current_file else os.getcwd()
                 save_dir = os.path.join(base, "covers")
+            channel = self._get_channel_name()
+            if channel:
+                save_dir = os.path.join(save_dir, channel, "images")
+            os.makedirs(save_dir, exist_ok=True)
             local_cover = metadata_fetcher.download_cover(cover_url, save_dir, title, force=True)
             if local_cover:
                 local_cover = self._relativize_cover_path(local_cover)
@@ -462,6 +480,7 @@ class MainWindow(QMainWindow):
                 found = True
             if found:
                 col["name"] = title
+                col["name_bg"] = result.get("name_bg", "")
                 col["cover"] = cover_path
                 col["id"] = make_id(title)
                 col["description"] = result.get("description", "")
@@ -474,6 +493,7 @@ class MainWindow(QMainWindow):
                 self._loaded_collections.append({
                     "id": "",
                     "name": title,
+                    "name_bg": result.get("name_bg", ""),
                     "cover": cover_path,
                     "description": result.get("description", ""),
                     "genre": result.get("genre", []),
@@ -510,6 +530,7 @@ class MainWindow(QMainWindow):
         data = {
             "id": make_id(title),
             "name": title,
+            "name_bg": result.get("name_bg", ""),
             "cover": cover_path,
             "description": result.get("description", ""),
             "genre": result.get("genre", []),
@@ -578,6 +599,7 @@ class MainWindow(QMainWindow):
     def _on_info_changed(self):
         data = self.info_panel.get_data()
         self._collection.name = data["name"]
+        self._collection.name_bg = data.get("name_bg", "")
         self._collection.cover = data["cover"]
         self._collection.description = data["description"]
         self._collection.genre = data["genre"]
@@ -651,6 +673,8 @@ class MainWindow(QMainWindow):
         fname = os.path.basename(cover_path)
         candidates = []
 
+        channel = self._get_channel_name()
+
         def walk_up_and_try(base_dir, depth=5):
             if not base_dir or not os.path.isdir(base_dir):
                 return
@@ -660,6 +684,9 @@ class MainWindow(QMainWindow):
                 candidates.append(os.path.join(level, fname))
                 for sub in ["covers", "user/covers", "cover"]:
                     candidates.append(os.path.join(level, sub, fname))
+                if channel:
+                    candidates.append(os.path.join(level, "covers", channel, "images", fname))
+                    candidates.append(os.path.join(level, "user", channel, "images", fname))
                 parent = os.path.dirname(level)
                 if parent == level:
                     break
@@ -734,6 +761,7 @@ class MainWindow(QMainWindow):
                     video_meta[vp] = {
                         "id": col.get("id", ""),
                         "name": col.get("name", ""),
+                        "name_bg": col.get("name_bg", ""),
                         "cover": col.get("cover", ""),
                         "description": col.get("description", ""),
                         "genre": col.get("genre", []),
@@ -756,6 +784,7 @@ class MainWindow(QMainWindow):
             entry = {
                 "id": vid,
                 "name": meta.get("name") or fname,
+                "name_bg": meta.get("name_bg", ""),
                 "cover": cover_val,
                 "description": meta.get("description", ""),
                 "genre": meta.get("genre", []),
@@ -795,7 +824,11 @@ class MainWindow(QMainWindow):
 
         name = entry.get("name", "")
         stored = entry.get("cover", "")
-        resolved = find_cover_in_dir(covers_dir, name, stored)
+        channel = self._get_channel_name()
+        search_dir = os.path.join(covers_dir, channel, "images") if channel else covers_dir
+        resolved = find_cover_in_dir(search_dir, name, stored)
+        if not resolved and channel:
+            resolved = find_cover_in_dir(covers_dir, name, stored)
         if resolved and resolved != stored:
             entry["cover"] = resolved
             self._switch_to_collection_entry(entry)
@@ -820,11 +853,21 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
+        channel = self._get_channel_name()
+        search_dirs = []
+        if channel:
+            search_dirs.append(os.path.join(covers_dir, channel, "images"))
+        search_dirs.append(covers_dir)
+
         count = 0
         for entry in self._loaded_collections:
             name = entry.get("name", "")
             stored = entry.get("cover", "")
-            resolved = find_cover_in_dir(covers_dir, name, stored)
+            resolved = ""
+            for sd in search_dirs:
+                resolved = find_cover_in_dir(sd, name, stored)
+                if resolved:
+                    break
             if resolved and resolved != stored:
                 entry["cover"] = resolved
                 count += 1
@@ -840,6 +883,86 @@ class MainWindow(QMainWindow):
                 self._switch_to_collection_entry(entry)
                 break
         self._status(f"Resolved {count} cover(s)")
+
+    def _migrate_covers(self):
+        channels = config_handler.get_channel_names()
+        if not channels:
+            QMessageBox.information(self, "Migrate Covers", "No channels configured.")
+            return
+
+        covers_dir = config_handler.get_covers_dir()
+        if not covers_dir:
+            QMessageBox.information(self, "Migrate Covers", "Covers directory is not configured.")
+            return
+
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        pending = []
+        loaded_data = {}
+
+        for key, channel_name in channels.items():
+            json_path = os.path.join(project_root, f"{key}.json")
+            if not os.path.exists(json_path):
+                continue
+            data = json_handler.load_collection(json_path)
+            if not data or "collections" not in data:
+                continue
+            loaded_data[json_path] = data
+
+            for entry in data["collections"]:
+                cover_val = entry.get("cover", "")
+                if not cover_val or cover_val.startswith("http"):
+                    continue
+                src_path = cover_val
+                if not os.path.isabs(src_path):
+                    src_path = os.path.normpath(os.path.join(os.path.dirname(json_path), src_path))
+                if not os.path.exists(src_path):
+                    continue
+                dest_dir = os.path.join(covers_dir, channel_name, "images")
+                dest_path = os.path.join(dest_dir, os.path.basename(src_path))
+                if src_path == dest_path:
+                    continue
+                pending.append((key, channel_name, json_path, src_path, dest_path, entry))
+
+        if not pending:
+            QMessageBox.information(self, "Migrate Covers", "No covers needed migration.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Confirm Migration",
+            f"Move {len(pending)} cover(s) across {len(set(p[0] for p in pending))} channel(s) to new folder structure?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        saved_files = set()
+        migrated_count = 0
+        for key, channel_name, json_path, src_path, dest_path, entry in pending:
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            try:
+                shutil.move(src_path, dest_path)
+            except Exception as e:
+                self._status(f"Failed to move {src_path}: {e}")
+                continue
+            json_dir = os.path.dirname(os.path.abspath(json_path))
+            rel_path = os.path.relpath(dest_path, json_dir)
+            entry["cover"] = rel_path
+            saved_files.add((json_path, channel_name))
+            migrated_count += 1
+
+        saved_paths = set(f[0] for f in saved_files)
+        saved_channels = len(set(f[1] for f in saved_files))
+        for json_path in saved_paths:
+            json_handler.save_collection(json_path, loaded_data[json_path])
+
+        QMessageBox.information(
+            self, "Migrate Covers",
+            f"Migrated {migrated_count} cover(s) for {saved_channels} channel(s)."
+        )
+        if self._current_file:
+            self._load_collection_from_path(self._current_file)
+        self._status(f"Migrated {migrated_count} cover(s)")
 
     def _rebuild_video_map(self):
         self._video_collection_map = {}

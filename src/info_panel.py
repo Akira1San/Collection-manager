@@ -33,6 +33,12 @@ class InfoPanel(QWidget):
         self.name_edit.textChanged.connect(self._on_change)
         form.addRow("Name:", self.name_edit)
 
+        self.name_bg_edit = QLineEdit()
+        self.name_bg_edit.setPlaceholderText("Bulgarian name (auto-filled from Wikipedia)")
+        self.name_bg_edit.setToolTip("Bulgarian translation of the title. Auto-filled from Wikipedia when fetching metadata, or editable manually.")
+        self.name_bg_edit.textChanged.connect(self._on_change)
+        form.addRow("Name (BG):", self.name_bg_edit)
+
         cover_path_layout = QHBoxLayout()
         self.cover_path_edit = QLineEdit()
         self.cover_path_edit.setPlaceholderText("Cover image path")
@@ -81,6 +87,7 @@ class InfoPanel(QWidget):
         return {
             "id": self.id_label.text(),
             "name": self.name_edit.text(),
+            "name_bg": self.name_bg_edit.text(),
             "cover": self.cover_path_edit.text(),
             "description": self.desc_edit.toPlainText(),
             "genre": [g.strip() for g in self.genre_edit.text().split(",") if g.strip()],
@@ -91,6 +98,7 @@ class InfoPanel(QWidget):
         cover = data.get("cover", "")
         self.id_label.setText(data.get("id", ""))
         self.name_edit.setText(data.get("name", ""))
+        self.name_bg_edit.setText(data.get("name_bg", ""))
         self.cover_path_edit.setText(cover)
         if cover:
             self.cover.set_cover(cover)
@@ -110,6 +118,7 @@ class InfoPanel(QWidget):
     def clear(self):
         self.id_label.setText("")
         self.name_edit.clear()
+        self.name_bg_edit.clear()
         self.cover_path_edit.clear()
         self.cover.clear_cover()
         self.desc_edit.clear()

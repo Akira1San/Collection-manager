@@ -26,6 +26,7 @@ class Collection:
     def __init__(self, name=""):
         self.id = make_id(name) if name else ""
         self.name = name
+        self.name_bg = ""
         self.cover = ""
         self.description = ""
         self.genre = []
@@ -38,6 +39,7 @@ class Collection:
         return {
             "id": self.id,
             "name": self.name,
+            "name_bg": self.name_bg,
             "cover": self.cover,
             "description": self.description,
             "genre": self.genre,
@@ -51,6 +53,7 @@ class Collection:
         c = Collection()
         c.id = d.get("id", "")
         c.name = d.get("name", "")
+        c.name_bg = d.get("name_bg", "")
         c.cover = d.get("cover", "")
         c.description = d.get("description", "")
         c.genre = d.get("genre", [])

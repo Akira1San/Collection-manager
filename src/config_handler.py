@@ -84,6 +84,37 @@ def get_api_key(service):
     return ""
 
 
+def get_channel_names():
+    ensure_config()
+    config = configparser.ConfigParser()
+    config.read(CONFIG_PATH)
+    if config.has_section("Channels"):
+        items = config.items("Channels")
+        if items:
+            return dict(items)
+    project_root = os.path.dirname(CONFIG_PATH)
+    pattern = os.path.join(project_root, "*.json")
+    json_files = sorted(glob.glob(pattern))
+    result = {}
+    for fp in json_files:
+        stem = os.path.splitext(os.path.basename(fp))[0]
+        if stem != "config":
+            result[stem] = stem
+    return result
+
+
+def set_channel_names(channels):
+    ensure_config()
+    config = configparser.ConfigParser()
+    config.read(CONFIG_PATH)
+    if not config.has_section("Channels"):
+        config.add_section("Channels")
+    for key, val in channels.items():
+        config.set("Channels", key, val)
+    with open(CONFIG_PATH, "w") as f:
+        config.write(f)
+
+
 def set_api_key(service, key):
     ensure_config()
     config = configparser.ConfigParser()

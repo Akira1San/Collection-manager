@@ -88,11 +88,14 @@ def fetch_wikipedia(title, year=""):
     genre = []
     year = 0
     cover = ""
+    name_bg = ""
     if wikibase:
         claims_url = f"https://www.wikidata.org/wiki/Special:EntityData/{wikibase}.json"
         claims_data = _json_get(claims_url)
         entity = claims_data.get("entities", {}).get(wikibase, {})
         claims = entity.get("claims", {})
+
+        name_bg = entity.get("labels", {}).get("bg", {}).get("value", "")
 
         pub_date = claims.get("P577", [{}])[0].get("mainsnak", {}).get("datavalue", {})
         if pub_date:
@@ -143,6 +146,7 @@ def fetch_wikipedia(title, year=""):
         "genre": genre,
         "description": description,
         "cover": cover,
+        "name_bg": name_bg,
         "source": "Wikipedia",
     }
 
