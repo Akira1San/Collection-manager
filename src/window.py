@@ -677,6 +677,11 @@ class MainWindow(QMainWindow):
         for c in candidates:
             if os.path.exists(c):
                 return os.path.normpath(c)
+        covers_dir = config_handler.get_covers_dir()
+        if covers_dir and os.path.isdir(covers_dir):
+            direct = os.path.join(covers_dir, fname)
+            if os.path.exists(direct):
+                return os.path.normpath(direct)
         return cover_path
 
     def _relativize_cover_path(self, cover_path):
