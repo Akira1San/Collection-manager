@@ -223,6 +223,16 @@ class MainWindow(QMainWindow):
         channels = config_handler.get_channel_names()
         return channels.get(stem, "")
 
+    def _get_channel_covers_dir(self, channel):
+        if not channel:
+            return ""
+        covers_dir = config_handler.get_covers_dir()
+        if not covers_dir:
+            base = os.path.dirname(os.path.abspath(self._current_file)) if self._current_file else os.getcwd()
+            return os.path.join(base, "covers", channel)
+        parent = os.path.normpath(os.path.join(covers_dir, "..", ".."))
+        return os.path.join(parent, "covers", channel)
+
     def _refresh_collections_combo(self):
         self.collections_combo.blockSignals(True)
         self.collections_combo.clear()
@@ -533,7 +543,7 @@ class MainWindow(QMainWindow):
                 save_dir = os.path.join(base, "covers")
             channel = self._get_channel_name()
             if channel:
-                save_dir = os.path.join(save_dir, channel)
+                save_dir = self._get_channel_covers_dir(channel)
             os.makedirs(save_dir, exist_ok=True)
             local_cover = metadata_fetcher.download_cover(cover_url, save_dir, title, force=True)
             if local_cover:
@@ -756,7 +766,7 @@ class MainWindow(QMainWindow):
                     candidates.append(os.path.join(level, sub, fname))
                 if channel:
                     candidates.append(os.path.join(level, "covers", channel, fname))
-                    candidates.append(os.path.join(level, "user", channel, fname))
+                    candidates.append(os.path.join(level, "user", "covers", channel, fname))
                 parent = os.path.dirname(level)
                 if parent == level:
                     break
@@ -779,6 +789,12 @@ class MainWindow(QMainWindow):
             direct = os.path.join(covers_dir, fname)
             if os.path.exists(direct):
                 return os.path.normpath(direct)
+        if channel:
+            channel_dir = self._get_channel_covers_dir(channel)
+            if channel_dir and os.path.isdir(channel_dir):
+                direct = os.path.join(channel_dir, fname)
+                if os.path.exists(direct):
+                    return os.path.normpath(direct)
         return cover_path
 
     def _relativize_cover_path(self, cover_path):
@@ -895,7 +911,7 @@ class MainWindow(QMainWindow):
         name = entry.get("name", "")
         stored = entry.get("cover", "")
         channel = self._get_channel_name()
-        search_dir = os.path.join(covers_dir, channel) if channel else covers_dir
+        search_dir = self._get_channel_covers_dir(channel) if channel else covers_dir
         resolved = find_cover_in_dir(search_dir, name, stored)
         if not resolved and channel:
             resolved = find_cover_in_dir(covers_dir, name, stored)
@@ -926,7 +942,7 @@ class MainWindow(QMainWindow):
         channel = self._get_channel_name()
         search_dirs = []
         if channel:
-            search_dirs.append(os.path.join(covers_dir, channel))
+            search_dirs.append(self._get_channel_covers_dir(channel))
         search_dirs.append(covers_dir)
 
         count = 0
@@ -997,19 +1013,36 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Migrate Covers", "No collections found in the loaded file.")
             return
 
-        dest_dir = os.path.join(covers_dir, channel)
+        dest_dir = self._get_channel_covers_dir(channel)
         os.makedirs(dest_dir, exist_ok=True)
+
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_covers = os.path.join(project_root, "covers")
+        flat_dirs = [d for d in [local_covers, covers_dir] if d and os.path.isdir(d)]
 
         pending = []
         for entry in data["collections"]:
+            name = entry.get("name", "")
             cover_val = entry.get("cover", "")
-            if not cover_val or cover_val.startswith("http"):
+
+            src_path = ""
+            if cover_val and not cover_val.startswith("http"):
+                src_path = cover_val
+                if not os.path.isabs(src_path):
+                    src_path = os.path.normpath(os.path.join(os.path.dirname(json_path), src_path))
+                if not os.path.exists(src_path):
+                    src_path = ""
+
+            if not src_path and name:
+                for fd in flat_dirs:
+                    resolved = find_cover_in_dir(fd, name, "")
+                    if resolved:
+                        src_path = resolved
+                        break
+
+            if not src_path or not os.path.exists(src_path):
                 continue
-            src_path = cover_val
-            if not os.path.isabs(src_path):
-                src_path = os.path.normpath(os.path.join(os.path.dirname(json_path), src_path))
-            if not os.path.exists(src_path):
-                continue
+
             dest_path = os.path.join(dest_dir, os.path.basename(src_path))
             if src_path == dest_path:
                 continue
@@ -1038,7 +1071,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 self._status(f"Failed to move {src_path}: {e}")
                 continue
-            rel_path = os.path.relpath(dest_path, os.path.dirname(os.path.abspath(json_path)))
+            rel_path = self._relativize_cover_path(dest_path)
             entry["cover"] = rel_path
             migrated += 1
 
