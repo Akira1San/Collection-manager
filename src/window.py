@@ -841,13 +841,16 @@ class MainWindow(QMainWindow):
             if col.get("id") == col_id:
                 col["name"] = data.get("name", "")
                 col["name_bg"] = data.get("name_bg", "")
-                col["cover"] = data.get("cover", "")
+                cover = data.get("cover", "")
+                if cover and os.path.isabs(cover):
+                    cover = self._relativize_cover_path(cover)
+                col["cover"] = cover
                 col["description"] = data.get("description", "")
                 col["genre"] = data.get("genre", [])
                 col["year"] = data.get("year", 0)
                 break
         self._on_info_changed()
-        self._write_json(self._current_file)
+        json_handler.save_collection(self._current_file, {"collections": self._loaded_collections})
         self._status("Info saved")
 
     def _save(self):
