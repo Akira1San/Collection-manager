@@ -449,7 +449,7 @@ class MainWindow(QMainWindow):
                 save_dir = os.path.join(base, "covers")
             local_cover = metadata_fetcher.download_cover(cover_url, save_dir, title, force=True)
             if local_cover:
-                local_cover = os.path.abspath(local_cover)
+                local_cover = self._relativize_cover_path(local_cover)
 
         cover_path = local_cover or cover_url
 
@@ -516,6 +516,9 @@ class MainWindow(QMainWindow):
             "year": result.get("year", 0),
         }
         self.info_panel.set_data(data)
+        resolved = self._resolve_cover_path(cover_path)
+        if resolved and os.path.exists(resolved):
+            self.info_panel.cover.set_cover(resolved)
         self._on_info_changed()
 
     def _on_video_folder_changed(self, path):
@@ -676,6 +679,16 @@ class MainWindow(QMainWindow):
                 return os.path.normpath(c)
         return cover_path
 
+    def _relativize_cover_path(self, cover_path):
+        if not cover_path or not os.path.isabs(cover_path):
+            return cover_path
+        collections_dir = config_handler.get_collections_dir()
+        if collections_dir:
+            base = os.path.dirname(os.path.dirname(collections_dir.rstrip("/")))
+            if cover_path.startswith(base.rstrip("/") + "/"):
+                return os.path.relpath(cover_path, base)
+        return os.path.relpath(cover_path, os.path.dirname(os.path.abspath(self._current_file))) if self._current_file else cover_path
+
     def _save(self):
         if not self.add_panel.get_video_paths():
             QMessageBox.warning(self, "No Videos", "Add videos before saving.")
@@ -732,10 +745,13 @@ class MainWindow(QMainWindow):
             duration = meta.get("duration", 0.0)
             if duration == 0.0 and os.path.exists(vpath):
                 duration = video_scanner.get_video_duration(vpath)
+            cover_val = self._resolve_cover_path(meta.get("cover", "")) or meta.get("cover", "")
+            if cover_val and os.path.isabs(cover_val):
+                cover_val = self._relativize_cover_path(cover_val)
             entry = {
                 "id": vid,
                 "name": meta.get("name") or fname,
-                "cover": self._resolve_cover_path(meta.get("cover", "")) or meta.get("cover", ""),
+                "cover": cover_val,
                 "description": meta.get("description", ""),
                 "genre": meta.get("genre", []),
                 "year": meta.get("year", 0),
