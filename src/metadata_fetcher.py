@@ -177,7 +177,7 @@ def fetch_tmdb(title, api_key, year=""):
     }
 
 
-def download_cover(url, save_dir, filename):
+def download_cover(url, save_dir, filename, force=False):
     if not url or not url.startswith("http"):
         return ""
     os.makedirs(save_dir, exist_ok=True)
@@ -186,13 +186,14 @@ def download_cover(url, save_dir, filename):
         ext = ".jpg"
     filename = filename.replace(" ", "_")
     save_path = os.path.join(save_dir, f"{filename}{ext}")
-    if os.path.exists(save_path):
-        return save_path
-    if os.path.isdir(save_dir):
-        for f in os.listdir(save_dir):
-            name, _ = os.path.splitext(f)
-            if name == filename:
-                return os.path.join(save_dir, f)
+    if not force:
+        if os.path.exists(save_path):
+            return save_path
+        if os.path.isdir(save_dir):
+            for f in os.listdir(save_dir):
+                name, _ = os.path.splitext(f)
+                if name == filename:
+                    return os.path.join(save_dir, f)
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "CollectionManager/1.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:

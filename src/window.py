@@ -447,7 +447,7 @@ class MainWindow(QMainWindow):
             if not save_dir:
                 base = os.path.dirname(os.path.abspath(self._current_file)) if self._current_file else os.getcwd()
                 save_dir = os.path.join(base, "covers")
-            local_cover = metadata_fetcher.download_cover(cover_url, save_dir, title)
+            local_cover = metadata_fetcher.download_cover(cover_url, save_dir, title, force=True)
             if local_cover:
                 local_cover = os.path.abspath(local_cover)
 
