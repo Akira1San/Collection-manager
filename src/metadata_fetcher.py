@@ -181,6 +181,34 @@ def fetch_tmdb(title, api_key, year=""):
     }
 
 
+def fetch_bulgarian_name(title):
+    if not title:
+        return ""
+    search_url = (
+        f"https://en.wikipedia.org/w/api.php?"
+        f"action=query&list=search&srsearch={urllib.parse.quote(title)}&format=json&srlimit=1"
+    )
+    search = _json_get(search_url)
+    pages = search.get("query", {}).get("search", [])
+    if not pages:
+        return ""
+    page_title = pages[0]["title"]
+    props_url = (
+        f"https://en.wikipedia.org/w/api.php?"
+        f"action=query&prop=pageprops&titles={urllib.parse.quote(page_title)}&format=json"
+    )
+    props_data = _json_get(props_url)
+    pages_data = props_data.get("query", {}).get("pages", {})
+    page_id = list(pages_data.keys())[0]
+    wikibase = pages_data[page_id].get("pageprops", {}).get("wikibase_item", "")
+    if not wikibase:
+        return ""
+    wd_url = f"https://www.wikidata.org/wiki/Special:EntityData/{wikibase}.json"
+    wd_data = _json_get(wd_url)
+    entity = wd_data.get("entities", {}).get(wikibase, {})
+    return entity.get("labels", {}).get("bg", {}).get("value", "")
+
+
 def download_cover(url, save_dir, filename, force=False):
     if not url or not url.startswith("http"):
         return ""

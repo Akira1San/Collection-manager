@@ -535,6 +535,29 @@ class MainWindow(QMainWindow):
         title = result.get("title", "")
         cover_url = result.get("cover", "")
 
+        if result.get("_bg_only"):
+            name_bg = result.get("name_bg", "")
+            if not name_bg:
+                self._status(f"No Bulgarian name found for '{title}'", 3000)
+                return
+            col_found = None
+            for col in self._loaded_collections:
+                if vpath and any(v.get("path") == vpath for v in col.get("videos", [])):
+                    col_found = col
+                    break
+                if col.get("name") == title or col.get("id") == make_id(title):
+                    col_found = col
+                    break
+            if col_found is not None:
+                col_found["name_bg"] = name_bg
+            data = self.info_panel.get_data()
+            data["name_bg"] = name_bg
+            self.info_panel.set_data(data)
+            if col_found is not None:
+                self._on_info_changed()
+            self._status(f"Bulgarian name: {name_bg}")
+            return
+
         local_cover = ""
         if cover_url and cover_url.startswith("http"):
             save_dir = config_handler.get_covers_dir()

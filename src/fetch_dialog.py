@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QLineEdit, QProgressBar, QMessageBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QCheckBox,
 )
 from PySide6.QtCore import Qt, QThread, Signal
 
@@ -93,6 +94,58 @@ class BatchWorker(QThread):
         self._cancelled = True
 
 
+class BgWorker(QThread):
+    progress = Signal(int)
+    finished = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, title):
+        super().__init__()
+        self._title = title
+
+    def run(self):
+        try:
+            self.progress.emit(10)
+            name_bg = metadata_fetcher.fetch_bulgarian_name(self._title)
+            self.progress.emit(100)
+            self.finished.emit({"title": self._title, "name_bg": name_bg, "_bg_only": True})
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class BgBatchWorker(QThread):
+    progress = Signal(int)
+    item_finished = Signal(int, int, object)
+    item_error = Signal(int, int, str)
+    finished = Signal(list)
+
+    def __init__(self, items):
+        super().__init__()
+        self._items = items
+        self._cancelled = False
+        self._results = []
+
+    def run(self):
+        total = len(self._items)
+        for i, (vpath, title, year) in enumerate(self._items):
+            if self._cancelled:
+                break
+            self.progress.emit(0)
+            try:
+                name_bg = metadata_fetcher.fetch_bulgarian_name(title)
+                result = {"title": title, "name_bg": name_bg, "_bg_only": True}
+                self._results.append((vpath, result))
+                self.item_finished.emit(i + 1, total, result)
+            except Exception as e:
+                self._results.append((vpath, None))
+                self.item_error.emit(i + 1, total, str(e))
+            self.progress.emit(100)
+        self.finished.emit(self._results)
+
+    def cancel(self):
+        self._cancelled = True
+
+
 class FetchDialog(QDialog):
     def __init__(self, parent=None, collection_name="", items=None):
         super().__init__(parent)
@@ -147,6 +200,11 @@ class FetchDialog(QDialog):
             self.year_edit.setPlaceholderText("Year (optional)...")
             form.addRow("Year:", self.year_edit)
 
+        self.bg_only_cb = QCheckBox("BG name only")
+        self.bg_only_cb.setToolTip("Only fetch the Bulgarian translated name from Wikipedia")
+        self.bg_only_cb.toggled.connect(self._on_bg_only_toggled)
+        form.addRow(self.bg_only_cb)
+
         self.source_combo = QComboBox()
         self.source_combo.addItems(["IMDb", "OMDb", "Wikipedia", "TMDB"])
         self.source_combo.currentTextChanged.connect(self._on_source_changed)
@@ -183,18 +241,27 @@ class FetchDialog(QDialog):
         self._worker = None
         self._on_source_changed(self.source_combo.currentText())
 
+    def _on_bg_only_toggled(self, checked):
+        self.source_combo.setEnabled(not checked)
+        if checked:
+            self.api_key_label.setVisible(False)
+            self.api_key_edit.setVisible(False)
+        else:
+            self._on_source_changed(self.source_combo.currentText())
+
     def _on_source_changed(self, source):
         key = config_handler.get_api_key(source.lower())
         self.api_key_edit.setText(key)
-        visible = source in ("OMDb", "TMDB")
+        visible = source in ("OMDb", "TMDB") and not self.bg_only_cb.isChecked()
         self.api_key_label.setVisible(visible)
         self.api_key_edit.setVisible(visible)
 
     def _start_fetch(self):
         source = self.source_combo.currentText()
         api_key = self.api_key_edit.text().strip()
+        bg_only = self.bg_only_cb.isChecked()
 
-        if source in ("OMDb", "TMDB") and not api_key:
+        if not bg_only and source in ("OMDb", "TMDB") and not api_key:
             QMessageBox.warning(self, "Warning", f"API key required for {source}.")
             return
 
@@ -230,11 +297,17 @@ class FetchDialog(QDialog):
                 updated_items.append((vpath, title, year))
             self._items = updated_items
             self.status_label.setText(f"Fetching 1/{len(self._items)}...")
-            self._worker = BatchWorker(self._items, source, api_keys)
+            if bg_only:
+                self._worker = BgBatchWorker(self._items)
+                self._worker.item_finished.connect(self._on_item_finished)
+                self._worker.item_error.connect(self._on_item_error)
+                self._worker.finished.connect(self._on_batch_finished)
+            else:
+                self._worker = BatchWorker(self._items, source, api_keys)
+                self._worker.item_finished.connect(self._on_item_finished)
+                self._worker.item_error.connect(self._on_item_error)
+                self._worker.finished.connect(self._on_batch_finished)
             self._worker.progress.connect(self.progress_bar.setValue)
-            self._worker.item_finished.connect(self._on_item_finished)
-            self._worker.item_error.connect(self._on_item_error)
-            self._worker.finished.connect(self._on_batch_finished)
             self._worker.start()
         else:
             title = self.title_edit.text().strip()
@@ -243,10 +316,15 @@ class FetchDialog(QDialog):
                 QMessageBox.warning(self, "Warning", "Enter a title.")
                 return
             self.status_label.setText("Fetching...")
-            self._worker = FetchWorker(source, title, api_keys, year)
+            if bg_only:
+                self._worker = BgWorker(title)
+                self._worker.finished.connect(self._on_finished)
+                self._worker.error.connect(self._on_error)
+            else:
+                self._worker = FetchWorker(source, title, api_keys, year)
+                self._worker.finished.connect(self._on_finished)
+                self._worker.error.connect(self._on_error)
             self._worker.progress.connect(self.progress_bar.setValue)
-            self._worker.finished.connect(self._on_finished)
-            self._worker.error.connect(self._on_error)
             self._worker.start()
 
     def _cancel_fetch(self):
