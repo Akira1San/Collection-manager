@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QComboBox, QLineEdit, QPushButton, QFileDialog, QLabel,
     QMessageBox, QFrame, QDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView,
+    QHeaderView, QInputDialog,
 )
 from PySide6.QtCore import Qt
 
@@ -533,7 +533,7 @@ class MainWindow(QMainWindow):
                 save_dir = os.path.join(base, "covers")
             channel = self._get_channel_name()
             if channel:
-                save_dir = os.path.join(save_dir, channel, "images")
+                save_dir = os.path.join(save_dir, channel)
             os.makedirs(save_dir, exist_ok=True)
             local_cover = metadata_fetcher.download_cover(cover_url, save_dir, title, force=True)
             if local_cover:
@@ -755,8 +755,8 @@ class MainWindow(QMainWindow):
                 for sub in ["covers", "user/covers", "cover"]:
                     candidates.append(os.path.join(level, sub, fname))
                 if channel:
-                    candidates.append(os.path.join(level, "covers", channel, "images", fname))
-                    candidates.append(os.path.join(level, "user", channel, "images", fname))
+                    candidates.append(os.path.join(level, "covers", channel, fname))
+                    candidates.append(os.path.join(level, "user", channel, fname))
                 parent = os.path.dirname(level)
                 if parent == level:
                     break
@@ -895,7 +895,7 @@ class MainWindow(QMainWindow):
         name = entry.get("name", "")
         stored = entry.get("cover", "")
         channel = self._get_channel_name()
-        search_dir = os.path.join(covers_dir, channel, "images") if channel else covers_dir
+        search_dir = os.path.join(covers_dir, channel) if channel else covers_dir
         resolved = find_cover_in_dir(search_dir, name, stored)
         if not resolved and channel:
             resolved = find_cover_in_dir(covers_dir, name, stored)
@@ -926,7 +926,7 @@ class MainWindow(QMainWindow):
         channel = self._get_channel_name()
         search_dirs = []
         if channel:
-            search_dirs.append(os.path.join(covers_dir, channel, "images"))
+            search_dirs.append(os.path.join(covers_dir, channel))
         search_dirs.append(covers_dir)
 
         count = 0
@@ -955,84 +955,102 @@ class MainWindow(QMainWindow):
         self._status(f"Resolved {count} cover(s)")
 
     def _migrate_covers(self):
-        channels = config_handler.get_channel_names()
-        if not channels:
-            QMessageBox.information(self, "Migrate Covers", "No channels configured.")
-            return
-
         covers_dir = config_handler.get_covers_dir()
         if not covers_dir:
             QMessageBox.information(self, "Migrate Covers", "Covers directory is not configured.")
             return
 
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        channel = self._get_channel_name()
+        channels = config_handler.get_channel_names()
+
+        if not channel and channels:
+            keys = sorted(channels.keys())
+            item, ok = QInputDialog.getItem(
+                self, "Select Channel",
+                "No channel detected for the current file.\nSelect a channel:",
+                keys, 0, False,
+            )
+            if not ok or not item:
+                return
+            channel = channels.get(item, item)
+
+        if not channel:
+            QMessageBox.information(
+                self, "Migrate Covers",
+                "No channel detected. Load a collection file first or add the channel in Config → Config Channels."
+            )
+            return
+
+        json_path = self._current_file if self._current_file else ""
+        if not json_path or not os.path.exists(json_path):
+            QMessageBox.information(self, "Migrate Covers", "No file loaded. Load a collection file first.")
+            return
+
+        stem = os.path.splitext(os.path.basename(json_path))[0]
+        if stem not in channels:
+            channels[stem] = channel
+            config_handler.set_channel_names(channels)
+            self._status(f"Registered channel '{stem}'")
+
+        data = json_handler.load_collection(json_path)
+        if not data or "collections" not in data:
+            QMessageBox.information(self, "Migrate Covers", "No collections found in the loaded file.")
+            return
+
+        dest_dir = os.path.join(covers_dir, channel)
+        os.makedirs(dest_dir, exist_ok=True)
+
         pending = []
-        loaded_data = {}
-
-        for key, channel_name in channels.items():
-            json_path = os.path.join(project_root, f"{key}.json")
-            if not os.path.exists(json_path):
+        for entry in data["collections"]:
+            cover_val = entry.get("cover", "")
+            if not cover_val or cover_val.startswith("http"):
                 continue
-            data = json_handler.load_collection(json_path)
-            if not data or "collections" not in data:
+            src_path = cover_val
+            if not os.path.isabs(src_path):
+                src_path = os.path.normpath(os.path.join(os.path.dirname(json_path), src_path))
+            if not os.path.exists(src_path):
                 continue
-            loaded_data[json_path] = data
-
-            for entry in data["collections"]:
-                cover_val = entry.get("cover", "")
-                if not cover_val or cover_val.startswith("http"):
-                    continue
-                src_path = cover_val
-                if not os.path.isabs(src_path):
-                    src_path = os.path.normpath(os.path.join(os.path.dirname(json_path), src_path))
-                if not os.path.exists(src_path):
-                    continue
-                dest_dir = os.path.join(covers_dir, channel_name, "images")
-                dest_path = os.path.join(dest_dir, os.path.basename(src_path))
-                if src_path == dest_path:
-                    continue
-                pending.append((key, channel_name, json_path, src_path, dest_path, entry))
+            dest_path = os.path.join(dest_dir, os.path.basename(src_path))
+            if src_path == dest_path:
+                continue
+            pending.append((src_path, dest_path, entry))
 
         if not pending:
-            QMessageBox.information(self, "Migrate Covers", "No covers needed migration.")
+            QMessageBox.information(
+                self, "Migrate Covers",
+                f"No covers to move. Folder '{dest_dir}' is ready for new downloads."
+            )
             return
 
         reply = QMessageBox.question(
             self, "Confirm Migration",
-            f"Move {len(pending)} cover(s) across {len(set(p[0] for p in pending))} channel(s) to new folder structure?",
+            f"Move {len(pending)} cover(s) to {dest_dir}?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
 
-        saved_files = set()
-        migrated_count = 0
-        for key, channel_name, json_path, src_path, dest_path, entry in pending:
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        migrated = 0
+        for src_path, dest_path, entry in pending:
             try:
                 shutil.move(src_path, dest_path)
             except Exception as e:
                 self._status(f"Failed to move {src_path}: {e}")
                 continue
-            json_dir = os.path.dirname(os.path.abspath(json_path))
-            rel_path = os.path.relpath(dest_path, json_dir)
+            rel_path = os.path.relpath(dest_path, os.path.dirname(os.path.abspath(json_path)))
             entry["cover"] = rel_path
-            saved_files.add((json_path, channel_name))
-            migrated_count += 1
+            migrated += 1
 
-        saved_paths = set(f[0] for f in saved_files)
-        saved_channels = len(set(f[1] for f in saved_files))
-        for json_path in saved_paths:
-            json_handler.save_collection(json_path, loaded_data[json_path])
+        json_handler.save_collection(json_path, data)
+        if self._current_file:
+            self._load_collection_from_path(self._current_file)
 
         QMessageBox.information(
             self, "Migrate Covers",
-            f"Migrated {migrated_count} cover(s) for {saved_channels} channel(s)."
+            f"Migrated {migrated} cover(s) to covers/{channel}/"
         )
-        if self._current_file:
-            self._load_collection_from_path(self._current_file)
-        self._status(f"Migrated {migrated_count} cover(s)")
+        self._status(f"Migrated {migrated} cover(s) to covers/{channel}/")
 
     def _rebuild_video_map(self):
         self._video_collection_map = {}
